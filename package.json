@@ -1,6 +1,6 @@
 {
   "name": "dotenv-sentinel",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Validate .env files against .env.example or a JSON schema (missing, empty, extra and mistyped variables), flag weak and default secrets, real secrets in example files, and .env files that are committed, in git history or not gitignored. Never prints secret values. CLI, library and GitHub Action. Zero deps.",
   "type": "module",
   "main": "./src/index.js",
