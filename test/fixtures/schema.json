@@ -1,0 +1,7 @@
+{ "variables": {
+  "NODE_ENV": { "type": "enum", "enum": ["production", "staging", "development"] },
+  "PORT": { "type": "port" },
+  "JWT_SECRET": { "type": "string", "minLength": 32, "secret": true },
+  "ADMIN_EMAIL": { "type": "email" },
+  "SMTP_HOST": { "type": "string", "required": false }
+} }

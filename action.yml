@@ -1,0 +1,54 @@
+name: 'dotenv-sentinel'
+description: 'Validate .env files, catch weak secrets and committed .env files'
+author: 'Louis Wright'
+branding: { icon: 'key', color: 'yellow' }
+inputs:
+  targets: { description: 'Directories or .env files to check (space-separated)', default: '.' }
+  example: { description: 'Path to the example file to compare against (default: .env.example next to each file)', default: '' }
+  schema: { description: 'Path to a JSON schema of variables', default: '' }
+  fail-on: { description: 'critical | high | medium | low | info | none', default: 'high' }
+  config: { description: 'Path to JSON config file', default: '' }
+  sarif: { description: 'Write SARIF to this path', default: '' }
+  json: { description: 'Write JSON report to this path', default: '' }
+  job-summary: { description: 'Write the Markdown report to the job summary (true/false)', default: 'true' }
+  args: { description: 'Extra CLI arguments', default: '' }
+outputs:
+  markdown-file: { description: 'Path of the Markdown report', value: '${{ steps.run.outputs.markdown-file }}' }
+  exit-code: { description: 'Exit code of the scan (0 pass, 1 findings, 2 error)', value: '${{ steps.run.outputs.exit-code }}' }
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      with: { node-version: '20' }
+    - id: run
+      shell: bash
+      env:
+        DES_TARGETS: ${{ inputs.targets }}
+        DES_EXAMPLE: ${{ inputs.example }}
+        DES_SCHEMA: ${{ inputs.schema }}
+        DES_FAIL_ON: ${{ inputs.fail-on }}
+        DES_CONFIG: ${{ inputs.config }}
+        DES_SARIF: ${{ inputs.sarif }}
+        DES_JSON: ${{ inputs.json }}
+        DES_JOB_SUMMARY: ${{ inputs.job-summary }}
+        DES_ARGS: ${{ inputs.args }}
+        DES_BIN: ${{ github.action_path }}/bin/dotenv-sentinel.js
+      run: |
+        md="$RUNNER_TEMP/dotenv-sentinel.md"
+        # shellcheck disable=SC2206
+        targets=($DES_TARGETS)
+        args=("${targets[@]}" --fail-on "$DES_FAIL_ON" --markdown "$md")
+        [ -n "$DES_EXAMPLE" ] && args+=(--example "$DES_EXAMPLE")
+        [ -n "$DES_SCHEMA" ] && args+=(--schema "$DES_SCHEMA")
+        [ -n "$DES_CONFIG" ] && args+=(--config "$DES_CONFIG")
+        [ -n "$DES_SARIF" ] && args+=(--sarif "$DES_SARIF")
+        [ -n "$DES_JSON" ] && args+=(--json "$DES_JSON")
+        set +e
+        # shellcheck disable=SC2086
+        node "$DES_BIN" "${args[@]}" $DES_ARGS
+        code=$?
+        set -e
+        echo "markdown-file=$md" >> "$GITHUB_OUTPUT"
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        if [ "$DES_JOB_SUMMARY" = "true" ] && [ -f "$md" ]; then cat "$md" >> "$GITHUB_STEP_SUMMARY"; fi
+        exit $code
