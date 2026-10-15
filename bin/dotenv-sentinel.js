@@ -16,16 +16,19 @@ Values are never printed: secrets are masked in every output.
                              types: string number integer boolean url email port json enum
                              keys: required (default true), pattern, enum, minLength, secret
       --min-secret-length <n>  Minimum length for secret variables (default 16)
+      --mode <name>          Also check the effective env for this mode (.env < .env.local < .env.<mode> < .env.<mode>.local)
+      --no-format            Skip dotenv-linter style formatting checks
+      --no-order             Skip the alphabetical key-order check
       --no-git               Do not ask git about tracked/ignored files
       --no-history           Do not search git history for committed .env files
 {COMMON}`;
 
 process.exitCode = await runCli(TOOL, {
   help: HELP,
-  options: { example: { type: 'string' }, schema: { type: 'string' }, 'min-secret-length': { type: 'string' }, 'no-git': { type: 'boolean' }, 'no-history': { type: 'boolean' } },
+  options: { example: { type: 'string' }, schema: { type: 'string' }, 'min-secret-length': { type: 'string' }, 'no-git': { type: 'boolean' }, 'no-history': { type: 'boolean' }, mode: { type: 'string' }, 'no-format': { type: 'boolean' }, 'no-order': { type: 'boolean' } },
   run(o, pos, cfg) {
     const paths = pos.length ? pos : cfg.paths || ['.'];
     const m = o['min-secret-length'] ?? cfg.minSecretLength; if (m !== undefined && !(Number(m) >= 0)) throw new UsageError('--min-secret-length must be a number');
-    return check(paths, { example: o.example || cfg.example, schema: o.schema || cfg.schema, minSecretLength: m === undefined ? undefined : Number(m), git: !(o['no-git'] ?? cfg.noGit), history: !(o['no-history'] ?? cfg.noHistory), allow: cfg.allow, severity: cfg.severity });
+    return check(paths, { example: o.example || cfg.example, schema: o.schema || cfg.schema, minSecretLength: m === undefined ? undefined : Number(m), git: !(o['no-git'] ?? cfg.noGit), history: !(o['no-history'] ?? cfg.noHistory), allow: cfg.allow, severity: cfg.severity, mode: o.mode || cfg.mode, format: !(o['no-format'] ?? cfg.noFormat), order: !(o['no-order'] ?? cfg.noOrder) });
   },
 });

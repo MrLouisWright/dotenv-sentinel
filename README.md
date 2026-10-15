@@ -1,10 +1,10 @@
 # dotenv-sentinel
 
-[![npm version](https://img.shields.io/npm/v/dotenv-sentinel.svg)](https://www.npmjs.com/package/dotenv-sentinel) [![CI](https://github.com/MrLouisWright/dotenv-sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/MrLouisWright/dotenv-sentinel/actions/workflows/ci.yml) [![Node](https://img.shields.io/node/v/dotenv-sentinel.svg)](https://nodejs.org) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![npm version](https://img.shields.io/npm/v/dotenv-sentinel.svg)](https://www.npmjs.com/package/dotenv-sentinel) [![CI](https://github.com/MrLouisWright/dotenv-sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/MrLouisWright/dotenv-sentinel/actions/workflows/ci.yml) [![Node](https://img.shields.io/node/v/dotenv-sentinel.svg)](https://nodejs.org) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![provenance](https://img.shields.io/badge/npm-provenance-blue)](https://docs.npmjs.com/generating-provenance-statements)
 
 > Validate `.env` files against `.env.example` or a schema, catch weak and default secrets, and keep `.env` files out of git, including its history.
 
-`dotenv-sentinel` finds every `.env`, `.env.*` and `*.env` file in a project and checks three things: **completeness** (variables missing compared with `.env.example` or a JSON schema, empty required values, wrong types), **secret hygiene** (`changeme`, `<your-key>`, short secrets, debug mode in production files, real credentials left in example files) and **git exposure** (env files that are tracked, not covered by `.gitignore`, or present anywhere in history). **Values are never printed**: every secret is masked. CLI, library and GitHub Action. Node.js 18+, **zero runtime dependencies** (uses the `git` CLI when available).
+`dotenv-sentinel` finds every `.env`, `.env.*` and `*.env` file in a project and checks three things: **completeness** (variables missing compared with `.env.example` or a JSON schema, empty required values, wrong types), **secret hygiene** (`changeme`, `<your-key>`, short secrets, debug mode in production files, real credentials left in example files) and **git exposure** (env files that are tracked, not covered by `.gitignore`, or present anywhere in history). **Values are never printed**: every secret is masked. CLI, library and GitHub Action. Node.js 18+, one runtime dependency, [bundle-secret-guard](https://www.npmjs.com/package/bundle-secret-guard), whose shared provider patterns detect real credentials (uses the `git` CLI when available).
 
 ## What it checks
 
@@ -129,6 +129,40 @@ Free to use under MIT, no attribution required. If dotenv-sentinel helps you, a 
 ```markdown
 [![Built with dotenv-sentinel by Louis Wright](https://img.shields.io/badge/built%20with-dotenv--sentinel-blue)](https://louiswright.co.uk)
 ```
+
+## Formatting, environments and run-time validation
+
+**Formatting** (like dotenv-linter): spaces around `=`, `KEY: value`, lower-case or invalid keys, leading or trailing whitespace, unnecessary quotes, keys out of order within a block, repeated blank lines and a missing final newline. Use `--no-format` or `--no-order` to skip them.
+
+**Per-environment files** load in this order: `.env` < `.env.local` < `.env.<mode>` < `.env.<mode>.local`. `.env.local` is skipped in `test`, and real environment variables win. Override files only need the keys they change. dotenv-sentinel checks the *effective* env for each mode it finds, or for `--mode production`, against `.env.example` and the schema.
+
+```js
+import { loadEnv, cleanEnv, str, port, bool, url } from 'dotenv-sentinel';
+
+const { values } = loadEnv('.', process.env.NODE_ENV, { processEnv: process.env });
+export const env = cleanEnv({ ...values, ...process.env }, {
+  NODE_ENV: str({ choices: ['production', 'development', 'test'] }),
+  PORT: port({ default: 3000 }),
+  DEBUG: bool({ devDefault: true, default: false }),
+  API_URL: url(),
+});
+// env.PORT is a number. A missing or invalid variable throws EnvError listing every problem.
+```
+
+Prefer zod? `fromZod(z.object({ PORT: z.coerce.number() }), process.env)` gives the same `EnvError` reporting.
+
+Real credentials are detected with the shared provider patterns from [bundle-secret-guard](https://www.npmjs.com/package/bundle-secret-guard) (`bundle-secret-guard/patterns`), so every package in the set recognises the same formats.
+
+## Module formats and types
+
+Ships ESM (`import`) and a bundled CommonJS build (`require`), with TypeScript declarations generated from the source:
+
+```js
+import * as lib from 'dotenv-sentinel';      // ESM
+const lib = require('dotenv-sentinel');      // CommonJS
+```
+
+Tests live in [`test/`](test) and run on Node 18, 20 and 22 in [GitHub Actions](https://github.com/MrLouisWright/dotenv-sentinel/actions/workflows/ci.yml), including a require+import check. Releases are published with `npm publish --provenance`.
 
 ## License
 

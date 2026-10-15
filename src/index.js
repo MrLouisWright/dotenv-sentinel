@@ -5,6 +5,13 @@ import { buildReport, exceeds, exitCode, formatText, formatJson, formatSarif, fo
 import { RULES } from './rules.js';
 import { parseEnv } from './dotenv.js';
 import { findSecret, SECRET_NAME, mask } from './secrets.js';
+import { formatChecks, hasFinalNewline } from './format.js';
+import { cleanEnv, fromZod, EnvError, str, num, int, bool, port, url, email, host, json } from './validate.js';
+import { loadEnv, envFileOrder } from './layers.js';
+
+export { formatChecks, cleanEnv, fromZod, EnvError, str, num, int, bool, port, url, email, host, json, loadEnv, envFileOrder };
+/** .env.local, .env.<mode>, .env.<mode>.local: files that override a base .env. Returns the mode or '' (for .env.local), else null. */
+export function layerMode(name) { if (name === '.env.local') return ''; const m = /^\.env\.([\w-]+?)(\.local)?$/.exec(name); return m && !isExample(name) ? m[1] : null; }
 
 export { parseEnv, RULES, exceeds, exitCode, formatText, formatJson, formatSarif, formatMarkdown, SEVERITIES, ConfigError };
 export const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
@@ -56,7 +63,7 @@ export function lintEnv(text, ctx = {}) {
   const tracked = !!ctx.tracked;
   for (const e of p.entries) {
     const v = e.value; if (!v) continue;
-    let known = findSecret(v);
+    let known = findSecret(v, e.key);
     if (known?.name === 'password in URL') { const pw = /:\/\/[^:/@\s]+:([^@\s]+)@/.exec(v)?.[1] || ''; if (weakness(pw) || /^\$\{?\w+\}?$/.test(pw)) known = ex ? null : known; }
     const isRef = /^\$\{?[A-Za-z_]\w*\}?$/.test(v);
     if (ex) {
@@ -76,13 +83,17 @@ export function lintEnv(text, ctx = {}) {
       if (/^http:\/\//i.test(v) && !/^http:\/\/(localhost|127\.|0\.0\.0\.0|\[::1\]|[\w-]+(:\d+)?(\/|$))/i.test(v)) add('insecure-url', e.line, `${e.key} uses http:// (${v.replace(/\/\/[^@/]*@/, '//…@').slice(0, 60)})`, { evidence: e.key });
     }
   }
+  if (ctx.format !== false) {
+    for (const f of formatChecks(text, { file, order: ctx.order !== false })) if (!(f.rule === 'leading-whitespace' && p.bad.some((b) => b.line === f.line))) raw.push(f);
+    if (!hasFinalNewline(String(text))) raw.push({ rule: 'ending-blank-line', file, location: file, message: 'File does not end with a newline', fix: 'Add a final newline.' });
+  }
   if (!ex && ctx.example) {
-    for (const k of Object.keys(ctx.example)) if (!(k in p.map)) add('missing-var', undefined, `${k} is in ${ctx.exampleName || 'the example'} but not here`, { evidence: k });
+    for (const k of Object.keys(ctx.example)) if (!(k in p.map) && !ctx.layer) add('missing-var', undefined, `${k} is in ${ctx.exampleName || 'the example'} but not here`, { evidence: k });
     for (const e of p.entries) if (!(e.key in ctx.example) && !(ctx.schema && e.key in ctx.schema.vars)) add('extra-var', e.line, `${e.key} is not documented in ${ctx.exampleName || 'the example'}`, { evidence: e.key });
   }
   if (!ex && ctx.schema) {
     for (const [k, s] of Object.entries(ctx.schema.vars)) {
-      if (!(k in p.map)) { if (ctx.schema.required.has(k) && !(ctx.example && k in ctx.example)) add('missing-var', undefined, `${k} is required by the schema`, { evidence: k }); continue; }
+      if (!(k in p.map)) { if (ctx.layer) continue; if (ctx.schema.required.has(k) && !(ctx.example && k in ctx.example)) add('missing-var', undefined, `${k} is required by the schema`, { evidence: k }); continue; }
       const v = p.map[k]; const line = p.entries.find((e) => e.key === k)?.line;
       if (v === '') { if (ctx.schema.required.has(k)) add('empty-required', line, `${k} is required but empty`, { evidence: k }); continue; }
       const show = s.secret || isSecretKey(k) ? mask(v) : JSON.stringify(v.slice(0, 40));
@@ -103,7 +114,7 @@ function walk(dir, out = []) { for (const e of readdirSync(dir, { withFileTypes:
 export function check(inputs, opts = {}) {
   validateConfig({ allow: opts.allow, severity: opts.severity });
   const schema = opts.schema ? loadSchema(opts.schema) : null;
-  const results = []; const repos = new Set();
+  const results = []; const repos = new Set(); const layerDirs = new Map();
   for (const inp of inputs) {
     let files;
     try { files = statSync(inp).isDirectory() ? walk(inp) : [inp]; } catch (e) { results.push({ target: inp, fatal: true, raw: [], errors: [`Cannot read ${inp}: ${e.code || e.message}`] }); continue; }
@@ -118,7 +129,9 @@ export function check(inputs, opts = {}) {
       let tracked, ignored;
       if (opts.git !== false) { const root = gitRoot(dir); if (root) { const rel = relative(root, resolve(f)); tracked = !!git(root, ['ls-files', '--', rel])?.trim(); ignored = spawnSync('git', ['check-ignore', '-q', '--', rel], { cwd: root, stdio: 'ignore' }).status === 0; } }
       const text = readFileSync(f, 'utf8');
-      const { raw, parsed } = lintEnv(text, { file: name, example, exampleName, schema, minSecretLength: opts.minSecretLength, tracked, ignored });
+      const layer = layerMode(base) !== null && existsSync(join(dir, '.env'));
+      if (layer) { const mode = layerMode(base); if (!layerDirs.has(dir)) layerDirs.set(dir, new Set()); if (mode) layerDirs.get(dir).add(mode); }
+      const { raw, parsed } = lintEnv(text, { file: name, example, exampleName, schema, minSecretLength: opts.minSecretLength, tracked, ignored, layer, format: opts.format, order: opts.order });
       const hasValues = parsed.entries.some((e) => e.value);
       if (!isExample(base) && tracked && hasValues) raw.unshift({ rule: 'committed-env', file: name, location: name, message: `${name} is tracked by git; everyone with repo access has these values`, fix: 'git rm --cached it, add it to .gitignore, rotate the secrets, and commit an .env.example instead.' });
       else if (!isExample(base) && tracked === false && ignored === false) raw.unshift({ rule: 'env-not-ignored', file: name, location: name, message: `${name} is not in .gitignore; one "git add ." away from being committed`, fix: `Add "${base.startsWith('.env') ? '.env*\n!.env.example' : base}" to .gitignore.` });
@@ -126,6 +139,19 @@ export function check(inputs, opts = {}) {
       results.push({ target: name, summary: { variables: parsed.entries.length, ...(exampleName ? { example: exampleName } : {}), ...(tracked !== undefined ? { gitTracked: tracked, gitIgnored: ignored } : {}) }, raw });
     }
     if (!files.length && !statSync(inp).isFile()) results.push({ target: inp, summary: { envFiles: 0 }, raw: [] });
+  }
+  // effective env per mode: .env < .env.local < .env.<mode> < .env.<mode>.local
+  for (const [dir, modes] of layerDirs) {
+    if (opts.mode) modes.add(opts.mode);
+    const exPath = opts.example || ['.env.example', '.env.sample', '.env.template', '.env.dist'].map((x) => join(dir, x)).find((x) => existsSync(x));
+    const example = exPath ? parseEnv(readFileSync(exPath, 'utf8')).map : null;
+    if (!example && !schema) continue;
+    for (const mode of [...modes].sort()) {
+      const eff = loadEnv(dir, mode); const label = `${relative(process.cwd(), dir) || '.'} (mode: ${mode})`; const raw = [];
+      if (example) for (const k of Object.keys(example)) if (!(k in eff.values)) raw.push({ rule: 'missing-var', location: label, message: `${k} is in ${basename(exPath)} but not set by any of ${eff.files.join(', ')}`, evidence: k });
+      if (schema) for (const k of schema.required) if (!(k in eff.values) && !(example && k in example)) raw.push({ rule: 'missing-var', location: label, message: `${k} is required by the schema but not set for mode ${mode}`, evidence: k });
+      results.push({ target: label, summary: { mode, files: eff.files, variables: Object.keys(eff.values).length }, raw });
+    }
   }
   for (const root of repos) {
     const log = git(root, ['log', '--all', '--diff-filter=A', '--name-only', '--format=%h %as']);
