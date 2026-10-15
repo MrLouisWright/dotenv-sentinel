@@ -1,5 +1,7 @@
 # dotenv-sentinel
 
+[![npm version](https://img.shields.io/npm/v/dotenv-sentinel.svg)](https://www.npmjs.com/package/dotenv-sentinel) [![CI](https://github.com/MrLouisWright/dotenv-sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/MrLouisWright/dotenv-sentinel/actions/workflows/ci.yml) [![Node](https://img.shields.io/node/v/dotenv-sentinel.svg)](https://nodejs.org) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 > Validate `.env` files against `.env.example` or a schema, catch weak and default secrets, and keep `.env` files out of git, including its history.
 
 `dotenv-sentinel` finds every `.env`, `.env.*` and `*.env` file in a project and checks three things: **completeness** (variables missing compared with `.env.example` or a JSON schema, empty required values, wrong types), **secret hygiene** (`changeme`, `<your-key>`, short secrets, debug mode in production files, real credentials left in example files) and **git exposure** (env files that are tracked, not covered by `.gitignore`, or present anywhere in history). **Values are never printed**: every secret is masked. CLI, library and GitHub Action. Node.js 18+, **zero runtime dependencies** (uses the `git` CLI when available).
